@@ -37,8 +37,33 @@ DEBUG_SSE = os.getenv("DEBUG_SSE", "false").lower() == "true"
 DEBUG_SSE_MAX_EVENTS = int(os.getenv("DEBUG_SSE_MAX_EVENTS", "20"))
 
 BASE_DIR = Path(__file__).resolve().parent
-GENERATED_DIR = BASE_DIR / "generated_reports"
-GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_generated_dir() -> Path:
+    """选择可写目录，避免 Serverless 只读文件系统导致启动崩溃。"""
+    candidates = [
+        Path("/tmp") / "generated_reports",  # Vercel/Linux Serverless
+        Path(os.getenv("TMPDIR", "")) / "generated_reports" if os.getenv("TMPDIR") else None,
+        BASE_DIR / "generated_reports",  # 本地开发
+    ]
+
+    for c in candidates:
+        if c is None:
+            continue
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            probe = c / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return c
+        except Exception:
+            continue
+
+    # 理论上不应走到这里；兜底抛错供日志定位
+    raise RuntimeError("No writable directory available for generated reports")
+
+
+GENERATED_DIR = _resolve_generated_dir()
 
 app = FastAPI(title="Industry Research Agent API", version="1.5.0")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
