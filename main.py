@@ -21,6 +21,7 @@ except Exception:
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from jinja2 import TemplateNotFound
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -30,7 +31,7 @@ COZE_TOKEN = os.getenv("COZE_TOKEN", "") or os.getenv("UPSTREAM_TOKEN", "")
 COZE_SESSION_ID = os.getenv("COZE_SESSION_ID", "")
 COZE_PROJECT_ID = os.getenv("COZE_PROJECT_ID", "")
 UPSTREAM_CONNECT_TIMEOUT = float(os.getenv("UPSTREAM_CONNECT_TIMEOUT", "15"))
-UPSTREAM_READ_TIMEOUT = float(os.getenv("UPSTREAM_READ_TIMEOUT", "180"))
+UPSTREAM_READ_TIMEOUT = float(os.getenv("UPSTREAM_READ_TIMEOUT", "600"))
 UPSTREAM_WRITE_TIMEOUT = float(os.getenv("UPSTREAM_WRITE_TIMEOUT", "30"))
 UPSTREAM_POOL_TIMEOUT = float(os.getenv("UPSTREAM_POOL_TIMEOUT", "30"))
 DEBUG_SSE = os.getenv("DEBUG_SSE", "false").lower() == "true"
@@ -83,7 +84,59 @@ class ChatRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    try:
+        return templates.TemplateResponse("index.html", {"request": request})
+    except TemplateNotFound:
+        fallback_html = """
+<!DOCTYPE html>
+<html lang=\"zh-CN\">
+<head>
+  <meta charset=\"UTF-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <title>行业研究智能体</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f3f6fb; }
+    .wrap { max-width: 900px; margin: 40px auto; padding: 0 16px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    textarea { width: 100%; min-height: 120px; padding: 10px; box-sizing: border-box; }
+    button { margin-top: 10px; padding: 10px 16px; border: none; background: #1f4fbf; color: #fff; border-radius: 8px; cursor: pointer; }
+    pre { white-space: pre-wrap; background: #f9fbff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <div class=\"wrap\">
+    <div class=\"card\">
+      <h2>行业研究智能体（Fallback 页面）</h2>
+      <p>当前部署未包含 templates/index.html，已启用内置页面。</p>
+      <textarea id=\"q\" placeholder=\"请输入你的行业问题\"></textarea>
+      <br/>
+      <button id=\"send\">发送</button>
+      <pre id=\"out\">等待请求...</pre>
+    </div>
+  </div>
+  <script>
+    const out = document.getElementById('out');
+    document.getElementById('send').onclick = async () => {
+      const text = document.getElementById('q').value.trim();
+      if (!text) return;
+      out.textContent = '请求中...';
+      try {
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: [{ role: 'user', content: text }] })
+        });
+        const data = await resp.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = String(e);
+      }
+    };
+  </script>
+</body>
+</html>
+        """
+        return HTMLResponse(content=fallback_html)
 
 
 def _extract_latest_user_text(messages: List[ChatMessage]) -> str:
@@ -374,13 +427,15 @@ async def industry_chat(req: ChatRequest) -> Dict[str, Any]:
                 result["debug"] = {"events_received": raw_event_count, "events_sample": debug_events}
             return result
 
+        # 上游已建立连接但未在读超时内产出可解析回答，返回 504 而不是 500
         raise HTTPException(
-            status_code=500,
-            detail=(
-                "Upstream request timeout: "
-                f"type={exc.__class__.__name__}, repr={repr(exc)}, "
-                f"url={COZE_STREAM_RUN_URL}, events_received={raw_event_count}"
-            ),
+            status_code=504,
+            detail={
+                "message": "Upstream stream read timeout",
+                "url": COZE_STREAM_RUN_URL,
+                "events_received": raw_event_count,
+                "hint": "Increase UPSTREAM_READ_TIMEOUT or simplify prompt to reduce generation time.",
+            },
         ) from exc
     except httpx.RequestError as exc:
         raise HTTPException(
