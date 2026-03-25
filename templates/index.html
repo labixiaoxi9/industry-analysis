@@ -49,12 +49,54 @@
       justify-content: space-between;
       padding: 0 18px;
       font-weight: 700;
+      gap: 12px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .avatar-btn {
+      width: 40px;
+      height: 40px;
+      min-width: 40px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      background: #ffffff;
+      color: #1f4fbf;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 0;
+    }
+
+    .avatar-btn img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
     }
 
     .chat-sub {
       font-size: 12px;
       opacity: 0.9;
       font-weight: 400;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .chat-body {
@@ -175,8 +217,16 @@
 <body>
   <div class="chat-shell">
     <div class="chat-header">
-      <div>行业研究智能体</div>
-      <div class="chat-sub">聚焦：行业调查 / 龙头企业分析 / 未来展望</div>
+      <div class="header-left">
+        <button id="avatarBtn" class="avatar-btn" type="button" title="点击切换头像">
+          <span id="avatarFallback">头像</span>
+        </button>
+        <input id="avatarInput" type="file" accept="image/*" style="display:none;" />
+        <div class="title-wrap">
+          <div>行业研究智能体</div>
+          <div class="chat-sub">聚焦：行业调查 / 龙头企业分析 / 未来展望</div>
+        </div>
+      </div>
     </div>
 
     <div id="chatBody" class="chat-body"></div>
@@ -194,6 +244,9 @@
     const chatBody = document.getElementById('chatBody');
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('sendBtn');
+    const avatarBtn = document.getElementById('avatarBtn');
+    const avatarInput = document.getElementById('avatarInput');
+    const avatarFallback = document.getElementById('avatarFallback');
 
     const history = [
       {
@@ -313,6 +366,48 @@
       parentEl.appendChild(box);
     }
 
+    function loadAvatarFromStorage() {
+      try {
+        const saved = localStorage.getItem('agentAvatarDataUrl');
+        if (!saved) return;
+        const img = document.createElement('img');
+        img.src = saved;
+        img.alt = '头像';
+        avatarBtn.innerHTML = '';
+        avatarBtn.appendChild(img);
+      } catch (_) {}
+    }
+
+    function bindAvatarSwitcher() {
+      avatarBtn.addEventListener('click', () => {
+        avatarInput.click();
+      });
+
+      avatarInput.addEventListener('change', () => {
+        const file = avatarInput.files && avatarInput.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = String(reader.result || '');
+          if (!dataUrl) return;
+
+          const img = document.createElement('img');
+          img.src = dataUrl;
+          img.alt = '头像';
+
+          avatarBtn.innerHTML = '';
+          avatarBtn.appendChild(img);
+
+          try {
+            localStorage.setItem('agentAvatarDataUrl', dataUrl);
+          } catch (_) {}
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
     function addMessage(role, content) {
       const el = document.createElement('div');
       el.className = `msg ${role}`;
@@ -371,6 +466,9 @@
         sendMessage();
       }
     });
+
+    bindAvatarSwitcher();
+    loadAvatarFromStorage();
 
     addMessage('assistant', '你好，我是行业研究智能体。请告诉我你要分析的行业或赛道。');
   </script>
