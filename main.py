@@ -54,7 +54,10 @@ def _resolve_generated_dir() -> Path:
             c.mkdir(parents=True, exist_ok=True)
             probe = c / ".write_test"
             probe.write_text("ok", encoding="utf-8")
-            probe.unlink(missing_ok=True)
+            try:
+                probe.unlink()
+            except FileNotFoundError:
+                pass
             return c
         except Exception:
             continue
